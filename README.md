@@ -28,7 +28,11 @@ which you should bring yourself.
 (For legal reasons, this repo does not include the Nikon firmware or parts thereof.)
 
 You also find a DOOM port,
-including the required cross-compilation set up.
+including the required cross-compilation set up
+and a tool to run it on your own camera.
+Be warned that doing so may irreversibly damage your camera,
+and that doing so is entirely at your own risk.
+
 
 ## Functionality status
 Last updated 2026-11-08
@@ -150,6 +154,8 @@ Steps:
    and starts it as its own T-Kernel task,
    which then loads `DOOM1.WAD` from the emulated XQD card.
    The virtual speaker output gets saved in `out/doom.wav`.
+
+To run DOOM on a real camera, please see [this guide](doc/run_doom_on_camera.md).
 
 
 ## Documentation
