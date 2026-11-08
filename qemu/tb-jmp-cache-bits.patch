@@ -1,0 +1,21 @@
+A larger per-CPU TB jump cache (z6ii): 2^14 entries instead of 2^12.
+
+Every indirect branch (a return, a pop into pc, a table branch) looks the next TB up in the vCPU's jump cache
+and, on a miss, in the global hash table, and in live view those lookups take a sizeable share of the host
+time. The cache's softmmu hash takes the low six bits of the PC
+as they are, and Thumb code never sets bit 0, so of 4096 entries the firmware can use about half. Four times
+the entries costs 192 KB more per vCPU. A lookup cache only: what runs, and every --vtime run, is unchanged.
+
+diff -ru a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -12,7 +12,8 @@
+ #include "qemu/rcu.h"
+ #include "exec/cpu-common.h"
+ 
+-#define TB_JMP_CACHE_BITS 12
++/* z6ii: 14, not 12 (tb-jmp-cache-bits.patch) */
++#define TB_JMP_CACHE_BITS 14
+ #define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+ 
+ /*

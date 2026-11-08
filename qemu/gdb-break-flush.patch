@@ -1,0 +1,20 @@
+Flush the TB cache when gdb inserts a breakpoint.
+
+diff -ru a/accel/tcg/tcg-accel-ops.c b/accel/tcg/tcg-accel-ops.c
+--- a/accel/tcg/tcg-accel-ops.c
++++ b/accel/tcg/tcg-accel-ops.c
+@@ -142,6 +142,14 @@
+                 break;
+             }
+         }
++        /*
++         * z6ii: breakpoints are recognised when a TB is looked up, so a
++         * loop of TBs linked to each other (qemu/cpsr-write-chain.patch links the
++         * camera's whole idle loop) never sees one inserted while it runs.
++         * Flush, so the next pass is translated anew and looked up, as after
++         * a breakpoint hit (gdbstub/system.c does the same there).
++         */
++        tb_flush(cs);
+         return err;
+     case GDB_WATCHPOINT_WRITE:
+     case GDB_WATCHPOINT_READ:

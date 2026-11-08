@@ -1,0 +1,55 @@
+Rebuild the AArch32 hflags on a CPSR write only when a bit they read changes
+
+diff -ru a/target/arm/helper.c b/target/arm/helper.c
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -10502,6 +10502,8 @@
+                 CPSRWriteType write_type)
+ {
+     uint32_t changed_daif;
++    /* z6ii: rebuild only when one of these bits really changes value, below */
++    uint32_t old_cpsr = env->uncached_cpsr;
+     bool rebuild_hflags = (write_type != CPSRWriteRaw) &&
+         (mask & (CPSR_M | CPSR_E | CPSR_IL));
+ 
+@@ -10631,7 +10633,13 @@
+     }
+     mask &= ~CACHED_CPSR_BITS;
+     env->uncached_cpsr = (env->uncached_cpsr & ~mask) | (val & mask);
+-    if (tcg_enabled() && rebuild_hflags) {
++    /*
++     * z6ii: the hflags read M, E and IL of the CPSR (and PAN, which
++     * HELPER(cpsr_write) checks), not the A/I/F masks; an MSR to cpsr_c
++     * has M in its mask even when the mode stays the same.
++     */
++    if (tcg_enabled() && rebuild_hflags &&
++        ((old_cpsr ^ env->uncached_cpsr) & (CPSR_M | CPSR_E | CPSR_IL))) {
+         arm_rebuild_hflags(env);
+     }
+ }
+diff -ru a/target/arm/tcg/op_helper.c b/target/arm/tcg/op_helper.c
+--- a/target/arm/tcg/op_helper.c
++++ b/target/arm/tcg/op_helper.c
+@@ -526,9 +526,20 @@
+ 
+ void HELPER(cpsr_write)(CPUARMState *env, uint32_t val, uint32_t mask)
+ {
++    uint32_t old_cpsr = env->uncached_cpsr;
++
+     cpsr_write(env, val, mask, CPSRWriteByInstr);
+-    /* TODO: Not all cpsr bits are relevant to hflags.  */
+-    arm_rebuild_hflags(env);
++    /*
++     * z6ii: of the CPSR, the hflags read only M, E, IL and PAN; the
++     * A/I/F masks go to env->daif, which the AArch32 hflags never read.
++     * An IRQ mask toggle (cpsid/cpsie, msr cpsr_c with the same mode)
++     * then keeps them as they are -- the camera's idle loop does two per
++     * iteration, and the rebuilds were most of an emulated boot.
++     */
++    if ((old_cpsr ^ env->uncached_cpsr) &
++        (CPSR_M | CPSR_E | CPSR_IL | CPSR_PAN)) {
++        arm_rebuild_hflags(env);
++    }
+ }
+ 
+ /* Write the CPSR for a 32-bit exception return */

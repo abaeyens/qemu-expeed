@@ -1,0 +1,25 @@
+# The C sources' style (qemu/, programs/)
+# Based on QEMU convention
+# (4 spaces, K&R braces with a function's body brace on its own line, `type *name`)
+# but at 115 columns
+BasedOnStyle: LLVM
+IndentWidth: 4
+UseTab: Never
+ColumnLimit: 115
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+IndentCaseLabels: false
+PointerAlignment: Right
+Cpp11BracedListStyle: false
+SortIncludes: Never
+ReflowComments: false
+AlignTrailingComments:
+  Kind: Leave
+MaxEmptyLinesToKeep: 2
+AlignConsecutiveMacros: Consecutive

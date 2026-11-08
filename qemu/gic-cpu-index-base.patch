@@ -1,0 +1,42 @@
+Let a GIC serve a cluster whose cores are not the machine's first CPUs
+
+diff -ru a/hw/intc/arm_gic.c b/hw/intc/arm_gic.c
+--- a/hw/intc/arm_gic.c
++++ b/hw/intc/arm_gic.c
+@@ -59,7 +59,9 @@
+ static inline int gic_get_current_cpu(GICState *s)
+ {
+     if (!qtest_enabled() && s->num_cpu > 1) {
+-        return current_cpu->cpu_index;
++        /* cpu_index is global; a GIC serving a later cluster numbers its CPU
++         * interfaces from that cluster's first core (first-cpu-index). */
++        return current_cpu->cpu_index - s->first_cpu_index;
+     }
+     return 0;
+ }
+diff -ru a/hw/intc/arm_gic_common.c b/hw/intc/arm_gic_common.c
+--- a/hw/intc/arm_gic_common.c
++++ b/hw/intc/arm_gic_common.c
+@@ -370,6 +370,11 @@
+      */
+     DEFINE_PROP_UINT32("dist-iidr", GICState, dist_iidr, 0x43b),
+     DEFINE_PROP_UINT32("lspi", GICState, lspi, 0),
++    /* The global cpu_index of the core on CPU interface 0. A machine with more
++     * than one cluster, each with its own GIC, sets this on the later ones;
++     * the default keeps every existing board unchanged.
++     */
++    DEFINE_PROP_UINT32("first-cpu-index", GICState, first_cpu_index, 0),
+     /* An EOI written while no interrupt is running (no active priority)
+      * is UNPREDICTABLE; by default it is ignored. When set, the named
+      * interrupt is still deactivated, as a board's real GIC may do.
+diff -ru a/include/hw/intc/arm_gic_common.h b/include/hw/intc/arm_gic_common.h
+--- a/include/hw/intc/arm_gic_common.h
++++ b/include/hw/intc/arm_gic_common.h
+@@ -145,6 +145,7 @@
+     bool virt_extn;
+     uint32_t dist_iidr; /* value GICD_IIDR reads as */
+     uint32_t lspi;      /* GICD_TYPER.LSPI: number of lockable SPIs */
++    uint32_t first_cpu_index; /* global cpu_index of this GIC's CPU interface 0 */
+     bool eoi_idle_deactivates; /* EOI with no active priority deactivates */
+     bool irq_reset_nonsecure; /* configure IRQs as group 1 (NS) on reset? */
+     int dev_fd; /* kvm device fd if backed by kvm vgic support */

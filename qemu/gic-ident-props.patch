@@ -1,0 +1,64 @@
+Let a board set the GIC distributor's identification registers
+
+diff -ru a/hw/intc/arm_gic.c b/hw/intc/arm_gic.c
+--- a/hw/intc/arm_gic.c
++++ b/hw/intc/arm_gic.c
+@@ -971,15 +971,11 @@
+         }
+         if (offset == 5) {
+             /* GICD_TYPER byte 1 */
+-            return (s->security_extn << 2);
++            return (s->security_extn << 2) | (s->lspi << 3);
+         }
+-        if (offset == 8) {
+-            /* GICD_IIDR byte 0 */
+-            return 0x3b; /* Arm JEP106 identity */
+-        }
+-        if (offset == 9) {
+-            /* GICD_IIDR byte 1 */
+-            return 0x04; /* Arm JEP106 identity */
++        if (offset >= 8 && offset < 0x0c) {
++            /* GICD_IIDR; the default is the Arm JEP106 identity alone */
++            return extract32(s->dist_iidr, (offset - 8) * 8, 8);
+         }
+         if (offset < 0x0c) {
+             /* All other bytes in this range are RAZ */
+diff -ru a/hw/intc/arm_gic_common.c b/hw/intc/arm_gic_common.c
+--- a/hw/intc/arm_gic_common.c
++++ b/hw/intc/arm_gic_common.c
+@@ -213,6 +213,11 @@
+         return;
+     }
+ 
++    if (s->lspi > 31) {
++        error_setg(errp, "lspi %u does not fit GICD_TYPER.LSPI (max 31)", s->lspi);
++        return;
++    }
++
+     if (s->security_extn &&
+         (s->revision == REV_11MPCORE)) {
+         error_setg(errp, "this GIC revision does not implement "
+@@ -360,6 +365,11 @@
+     /* True if the GIC should implement the virtualization extensions */
+     DEFINE_PROP_BOOL("has-virtualization-extensions", GICState, virt_extn, 0),
+     DEFINE_PROP_UINT32("num-priority-bits", GICState, n_prio_bits, 8),
++    /* Identification only: GICD_IIDR (default: Arm, product 0, revision 0)
++     * and GICD_TYPER.LSPI, so a board can report a real part's values.
++     */
++    DEFINE_PROP_UINT32("dist-iidr", GICState, dist_iidr, 0x43b),
++    DEFINE_PROP_UINT32("lspi", GICState, lspi, 0),
+     DEFINE_PROP_END_OF_LIST(),
+ };
+ 
+diff -ru a/include/hw/intc/arm_gic_common.h b/include/hw/intc/arm_gic_common.h
+--- a/include/hw/intc/arm_gic_common.h
++++ b/include/hw/intc/arm_gic_common.h
+@@ -143,6 +143,8 @@
+     uint32_t revision;
+     bool security_extn;
+     bool virt_extn;
++    uint32_t dist_iidr; /* value GICD_IIDR reads as */
++    uint32_t lspi;      /* GICD_TYPER.LSPI: number of lockable SPIs */
+     bool irq_reset_nonsecure; /* configure IRQs as group 1 (NS) on reset? */
+     int dev_fd; /* kvm device fd if backed by kvm vgic support */
+     Error *migration_blocker;

@@ -1,0 +1,55 @@
+Give QEMU's NVMe controller an MSI capability, next to MSI-X
+
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -202,6 +202,7 @@
+ #include "sysemu/block-backend.h"
+ #include "sysemu/hostmem.h"
+ #include "hw/pci/msix.h"
++#include "hw/pci/msi.h"
+ #include "hw/pci/pcie_sriov.h"
+ #include "sysemu/spdm-socket.h"
+ #include "migration/vmstate.h"
+@@ -650,7 +651,7 @@
+     PCIDevice *pci = PCI_DEVICE(n);
+     uint32_t intms = ldl_le_p(&n->bar.intms);
+ 
+-    if (msix_enabled(pci)) {
++    if (msix_enabled(pci) || msi_enabled(pci)) {   /* nikon: MSI as well as MSI-X */
+         return;
+     }
+     if (~intms & n->irq_status) {
+@@ -668,6 +669,10 @@
+         if (msix_enabled(pci)) {
+             trace_pci_nvme_irq_msix(cq->vector);
+             msix_notify(pci, cq->vector);
++        } else if (msi_enabled(pci)) {
++            /* nikon: one MSI vector, which every completion queue shares (CQs use vector 0
++             * without MSI-X); the message is edge-like, so nothing to deassert. */
++            msi_notify(pci, 0);
+         } else {
+             trace_pci_nvme_irq_pin();
+             assert(cq->vector < 32);
+@@ -682,7 +687,7 @@
+ static void nvme_irq_deassert(NvmeCtrl *n, NvmeCQueue *cq)
+ {
+     if (cq->irq_enabled) {
+-        if (msix_enabled(PCI_DEVICE(n))) {
++        if (msix_enabled(PCI_DEVICE(n)) || msi_enabled(PCI_DEVICE(n))) {
+             return;
+         } else {
+             assert(cq->vector < 32);
+@@ -8360,6 +8365,13 @@
+ 
+     pci_config_set_class(pci_conf, PCI_CLASS_STORAGE_EXPRESS);
+     nvme_add_pm_capability(pci_dev, 0x60);
++    /* nikon: an MSI capability (one vector, 64-bit address, no per-vector mask) next to MSI-X */
++    {
++        Error *msi_err = NULL;
++        if (msi_init(pci_dev, 0x50, 1, true, false, &msi_err) < 0) {
++            error_free(msi_err);   /* a platform without MSI: INTx/MSI-X only, as before */
++        }
++    }
+     pcie_endpoint_cap_init(pci_dev, 0x80);
+     pcie_cap_flr_init(pci_dev);
+     if (n->params.sriov_max_vfs) {

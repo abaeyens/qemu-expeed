@@ -1,0 +1,35 @@
+Charge one instruction of icount budget for every exception the vCPU takes
+
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -752,6 +752,30 @@
+         tcg_ops->do_interrupt(cpu);
+         bql_unlock();
+         cpu->exception_index = -1;
++        /*
++         * z6ii: under -icount, taking an exception costs one instruction of the slice. An
++         * exception raised while fetching (a prefetch abort on a vector the guest has just made
++         * execute-never) executes nothing, so without this a vCPU that faults on every vector
++         * fetch never spends its budget, the virtual clock stops and the round-robin thread never
++         * runs the other vCPUs again.
++         */
++        if (icount_enabled()) {
++            /* EMU_ICOUNT_EXC_COST=<n>: instructions charged per exception (default 1; 0: none) */
++            static int exc_cost = -1;
++            if (exc_cost < 0) {
++                const char *e = getenv("EMU_ICOUNT_EXC_COST");
++                exc_cost = (e && atoi(e) >= 0) ? atoi(e) : 1;
++            }
++            for (int n = 0; n < exc_cost; n++) {
++                if (cpu->neg.icount_decr.u16.low > 0) {
++                    cpu->neg.icount_decr.u16.low--;
++                } else if (cpu->icount_extra > 0) {
++                    cpu->icount_extra--;
++                } else {
++                    break;
++                }
++            }
++        }
+ 
+         if (unlikely(cpu->singlestep_enabled)) {
+             /*

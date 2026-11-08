@@ -1,0 +1,192 @@
+Make an -icount run repeatable when it is stopped and resumed
+
+diff -ru a/accel/tcg/icount-common.c b/accel/tcg/icount-common.c
+--- a/accel/tcg/icount-common.c
++++ b/accel/tcg/icount-common.c
+@@ -308,6 +308,16 @@
+         if (!all_cpu_threads_idle()) {
+             return;
+         }
++        /*
++         * A CPU stopped while the VM still runs is waiting for a vm_stop() the main loop has not
++         * carried out yet; "idle" here is not a guest WFI, so do not warp the clock past it.
++         */
++        CPUState *cpu;
++        CPU_FOREACH(cpu) {
++            if (cpu->stop || cpu->stopped) {
++                return;
++            }
++        }
+ 
+         if (qtest_enabled()) {
+             /* When testing, qtest commands advance icount.  */
+diff -ru a/accel/tcg/tcg-accel-ops-rr.c b/accel/tcg/tcg-accel-ops-rr.c
+--- a/accel/tcg/tcg-accel-ops-rr.c
++++ b/accel/tcg/tcg-accel-ops-rr.c
+@@ -60,6 +60,28 @@
+  */
+ 
+ static QEMUTimer *rr_kick_vcpu_timer;
++
++/*
++ * Under icount the stock loop gives each vCPU limit/cpu_count instructions per pass, where limit is
++ * the distance to the next timer deadline, so WHERE one vCPU hands over to the next depends on which
++ * timers happen to be armed: an extra timer (a guest-time pause, a debugger stop) changes the
++ * interleaving and with it the run. Here a vCPU hands over only after a fixed quantum of its own
++ * instructions (or when it halts or yields); a deadline or a stop merely interrupts it, and it then
++ * finishes its quantum. QEMU_ICOUNT_RR_QUANTUM=<n> turns this on (default 0 = the stock slicing: with a
++ * 20000-instruction quantum the machine got less far in the same virtual time, most
++ * likely cores spinning a whole quantum on a lock the other holds).
++ */
++static int64_t rr_quantum = -1;
++static int64_t rr_quantum_left;
++
++static int64_t rr_quantum_get(void)
++{
++    if (rr_quantum < 0) {
++        const char *q = getenv("QEMU_ICOUNT_RR_QUANTUM");
++        rr_quantum = q ? strtoll(q, NULL, 0) : 0;
++    }
++    return rr_quantum;
++}
+ static CPUState *rr_current_cpu;
+ 
+ static inline int64_t rr_next_kick_time(void)
+@@ -233,7 +255,8 @@
+              */
+             icount_handle_deadline();
+ 
+-            cpu_budget = icount_percpu_budget(cpu_count);
++            cpu_budget = rr_quantum_get() ? icount_percpu_budget(1)
++                                          : icount_percpu_budget(cpu_count);
+         }
+ 
+         replay_mutex_unlock();
+@@ -254,12 +277,24 @@
+             if (cpu_can_run(cpu)) {
+                 int r;
+ 
++                bool quantum = icount_enabled() && rr_quantum_get();
++
+                 bql_unlock();
+                 if (icount_enabled()) {
++                    if (quantum) {
++                        if (rr_quantum_left <= 0) {
++                            rr_quantum_left = rr_quantum_get();
++                        }
++                        cpu_budget = MIN(cpu_budget, rr_quantum_left);
++                    }
+                     icount_prepare_for_run(cpu, cpu_budget);
+                 }
+                 r = tcg_cpu_exec(cpu);
+                 if (icount_enabled()) {
++                    if (quantum) {
++                        rr_quantum_left -= cpu->icount_budget -
++                            (cpu->neg.icount_decr.u16.low + cpu->icount_extra);
++                    }
+                     icount_process_data(cpu);
+                 }
+                 bql_lock();
+@@ -273,6 +308,15 @@
+                     bql_lock();
+                     break;
+                 }
++                if (quantum) {
++                    /* back to the top for the deadline; next vCPU only when the quantum is over */
++                    if (rr_quantum_left <= 0 || r == EXCP_HLT || r == EXCP_HALTED ||
++                        r == EXCP_YIELD) {
++                        rr_quantum_left = 0;
++                        cpu = CPU_NEXT(cpu);
++                    }
++                    break;
++                }
+             } else if (cpu->stop) {
+                 if (cpu->unplug) {
+                     cpu = CPU_NEXT(cpu);
+diff -ru a/include/qemu/timer.h b/include/qemu/timer.h
+--- a/include/qemu/timer.h
++++ b/include/qemu/timer.h
+@@ -347,6 +347,13 @@
+  */
+ bool timerlist_run_timers(QEMUTimerList *timer_list);
+ 
++/*
++ * When set, consulted before a QEMU_CLOCK_VIRTUAL timer list is run; false skips the run for
++ * now (the timers stay pending). A machine uses it to keep those timers off the main loop under
++ * icount, see util/qemu-timer.c.
++ */
++extern bool (*qemu_timer_virtual_may_run)(void);
++
+ /**
+  * timerlist_notify:
+  * @timer_list: the timer list to use
+diff -ru a/system/cpus.c b/system/cpus.c
+--- a/system/cpus.c
++++ b/system/cpus.c
+@@ -347,6 +347,16 @@
+         gdb_set_stop_cpu(cpu);
+         qemu_system_debug_request();
+         cpu->stopped = true;
++        if (icount_enabled()) {
++            /* as in vm_stop(): the other CPUs would run on until the main loop acts */
++            CPUState *other;
++            CPU_FOREACH(other) {
++                if (other != cpu) {
++                    other->stop = true;
++                    cpu_exit(other);
++                }
++            }
++        }
+     }
+ }
+ 
+@@ -705,6 +715,20 @@
+          * FIXME: should not return to device code in case
+          * vm_stop() has been requested.
+          */
++        if (icount_enabled()) {
++            /*
++             * Under icount every vCPU runs on one round-robin thread, which turns the current
++             * CPU's stop into "stopped" and then runs the NEXT CPU until the main loop gets to
++             * pause it -- for a host-timing-dependent number of instructions. Stop them all
++             * here, so a breakpoint or a guest-time pause leaves the same state in every run.
++             */
++            CPUState *cpu;
++            CPU_FOREACH(cpu) {
++                cpu->stop = true;
++                cpu_exit(cpu);
++            }
++            return 0;
++        }
+         cpu_stop_current();
+         return 0;
+     }
+diff -ru a/util/qemu-timer.c b/util/qemu-timer.c
+--- a/util/qemu-timer.c
++++ b/util/qemu-timer.c
+@@ -498,6 +498,15 @@
+     return timer_expired_ns(timer_head, current_time * timer_head->scale);
+ }
+ 
++/*
++ * Under icount the vCPU thread runs the QEMU_CLOCK_VIRTUAL timers itself at each deadline
++ * (icount_handle_deadline), but it also wakes the main loop, which may run the same expired timers
++ * concurrently: a callback that raises an interrupt from there lands at whatever instruction the
++ * vCPU has reached by then, so a run is not repeatable. A machine that wants repeatable runs sets
++ * this hook to refuse the main loop while any vCPU is busy.
++ */
++bool (*qemu_timer_virtual_may_run)(void);
++
+ bool timerlist_run_timers(QEMUTimerList *timer_list)
+ {
+     QEMUTimer *ts;
+@@ -520,6 +529,9 @@
+         break;
+     default:
+     case QEMU_CLOCK_VIRTUAL:
++        if (qemu_timer_virtual_may_run && !qemu_timer_virtual_may_run()) {
++            goto out;
++        }
+         break;
+     case QEMU_CLOCK_HOST:
+         if (!replay_checkpoint(CHECKPOINT_CLOCK_HOST)) {

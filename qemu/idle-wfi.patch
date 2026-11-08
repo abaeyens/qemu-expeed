@@ -1,0 +1,265 @@
+Optionally let the camera's busy idle loop halt the vCPU (EMU_IDLE_WFI), keeping each core's speed
+
+diff -ru a/accel/tcg/icount-common.c b/accel/tcg/icount-common.c
+--- a/accel/tcg/icount-common.c
++++ b/accel/tcg/icount-common.c
+@@ -65,6 +65,89 @@
+ }
+ 
+ /*
++ * z6ii: EMU_IDLE_WFI. The camera's idle loop busy-spins, and under
++ * icount the vCPUs share one instruction budget, so an idle core takes half
++ * of it. With the knob, target/arm halts a core in that loop as a WFI would
++ * (emu_idle_wfi_mark), and while it is halted the cores that run are
++ * charged for it: each slice's instructions advance the virtual clock by
++ * (running + idle-halted) / running times as much, and its budget shrinks to
++ * match. Every core then still runs at the rate it had when the idle core
++ * spun (one instruction per 2^shift ns per running-or-spinning core), and
++ * when all of them idle the clock skips to the next timer. A core halted by
++ * an ordinary WFI is not charged for, as before.
++ */
++#define EMU_IDLE_MAX_CPUS 64
++bool emu_idle_enabled(void);
++int64_t emu_idle_slice_budget(CPUState *cpu, int64_t budget);
++static bool emu_idle_halted[EMU_IDLE_MAX_CPUS];
++static int64_t emu_idle_num[EMU_IDLE_MAX_CPUS], emu_idle_den[EMU_IDLE_MAX_CPUS];
++static int64_t emu_idle_rem[EMU_IDLE_MAX_CPUS];
++
++bool emu_idle_enabled(void)
++{
++    static int on = -1;
++
++    if (on < 0) {
++        const char *e = getenv("EMU_IDLE_WFI");
++        on = e && *e && strcmp(e, "0") != 0;
++    }
++    return on;
++}
++
++void emu_idle_wfi_mark(CPUState *cpu, bool idle);
++void emu_idle_wfi_mark(CPUState *cpu, bool idle)
++{
++    int i = cpu->cpu_index;
++
++    if (i >= EMU_IDLE_MAX_CPUS) {
++        return;
++    }
++    emu_idle_halted[i] = idle;
++}
++
++/* The slice's charge factor, and its budget in this vCPU's instructions. */
++int64_t emu_idle_slice_budget(CPUState *cpu, int64_t budget)
++{
++    CPUState *c;
++    int64_t running = 0, idle = 0;
++    int i = cpu->cpu_index;
++
++    if (!emu_idle_enabled() || i >= EMU_IDLE_MAX_CPUS) {
++        return budget;
++    }
++    CPU_FOREACH(c) {
++        if (!c->halted) {
++            running++;
++        } else if (c->cpu_index < EMU_IDLE_MAX_CPUS &&
++                   emu_idle_halted[c->cpu_index]) {
++            idle++;
++        }
++    }
++    if (running == 0) {
++        running = 1;
++    }
++    emu_idle_num[i] = running + idle;
++    emu_idle_den[i] = running;
++    /* at least one instruction: a zero budget runs nothing and the clock never gets there */
++    return budget > 0 ? MAX(budget * running / (running + idle), 1) : budget;
++}
++
++/* Instructions of this vCPU -> instructions of virtual time. */
++static int64_t emu_idle_charge(CPUState *cpu, int64_t executed)
++{
++    int i = cpu->cpu_index;
++    int64_t n;
++
++    if (!emu_idle_enabled() || i >= EMU_IDLE_MAX_CPUS ||
++        emu_idle_den[i] == 0 || emu_idle_num[i] == emu_idle_den[i]) {
++        return executed;
++    }
++    n = executed * emu_idle_num[i] + emu_idle_rem[i];
++    emu_idle_rem[i] = n % emu_idle_den[i];
++    return n / emu_idle_den[i];
++}
++
++/*
+  * The current number of executed instructions is based on what we
+  * originally budgeted minus the current state of the decrementing
+  * icount counters in extra/u16.low.
+@@ -86,7 +169,7 @@
+     cpu->icount_budget -= executed;
+ 
+     qatomic_set_i64(&timers_state.qemu_icount,
+-                    timers_state.qemu_icount + executed);
++                    timers_state.qemu_icount + emu_idle_charge(cpu, executed));
+ }
+ 
+ /*
+diff -ru a/accel/tcg/tcg-accel-ops-icount.c b/accel/tcg/tcg-accel-ops-icount.c
+--- a/accel/tcg/tcg-accel-ops-icount.c
++++ b/accel/tcg/tcg-accel-ops-icount.c
+@@ -117,6 +117,8 @@
+     replay_mutex_lock();
+ 
+     cpu->icount_budget = MIN(icount_get_limit(), cpu_budget);
++    /* z6ii: EMU_IDLE_WFI charges a slice more while a core idles */
++    cpu->icount_budget = emu_idle_slice_budget(cpu, cpu->icount_budget);
+     insns_left = MIN(0xffff, cpu->icount_budget);
+     cpu->neg.icount_decr.u16.low = insns_left;
+     cpu->icount_extra = cpu->icount_budget - insns_left;
+diff -ru a/accel/tcg/tcg-accel-ops-icount.h b/accel/tcg/tcg-accel-ops-icount.h
+--- a/accel/tcg/tcg-accel-ops-icount.h
++++ b/accel/tcg/tcg-accel-ops-icount.h
+@@ -12,6 +12,9 @@
+ 
+ void icount_handle_deadline(void);
+ void icount_prepare_for_run(CPUState *cpu, int64_t cpu_budget);
++/* z6ii: EMU_IDLE_WFI, see icount-common.c */
++bool emu_idle_enabled(void);
++int64_t emu_idle_slice_budget(CPUState *cpu, int64_t budget);
+ int64_t icount_percpu_budget(int cpu_count);
+ void icount_process_data(CPUState *cpu);
+ 
+diff -ru a/target/arm/helper.h b/target/arm/helper.h
+--- a/target/arm/helper.h
++++ b/target/arm/helper.h
+@@ -52,6 +52,7 @@
+ DEF_HELPER_2(exception_pc_alignment, noreturn, env, tl)
+ DEF_HELPER_1(setend, void, env)
+ DEF_HELPER_2(wfi, void, env, i32)
++DEF_HELPER_2(emu_idle_wfi, void, env, i32)
+ DEF_HELPER_1(wfe, void, env)
+ DEF_HELPER_2(wfit, void, env, i64)
+ DEF_HELPER_1(yield, void, env)
+diff -ru a/target/arm/tcg/op_helper.c b/target/arm/tcg/op_helper.c
+--- a/target/arm/tcg/op_helper.c
++++ b/target/arm/tcg/op_helper.c
+@@ -369,8 +369,65 @@
+ }
+ #endif
+ 
++/* z6ii: EMU_IDLE_WFI (accel/tcg/icount-common.c) */
++void emu_idle_wfi_mark(CPUState *cpu, bool idle);
++
++static void do_wfi(CPUARMState *env, uint32_t insn_len);
++
++/*
++ * A spinning core sees new work in its slot at once; a halted one only on an
++ * interrupt, and the kernel does not always send one. So the halt is bounded:
++ * EMU_IDLE_POLL_US (virtual microseconds, default 10) later the core wakes
++ * and looks at its slot again.
++ */
++#define EMU_IDLE_MAX_CPUS 64
++static QEMUTimer *emu_idle_timer[EMU_IDLE_MAX_CPUS];
++
++static int64_t emu_idle_poll_ns(void)
++{
++    static int64_t ns = -1;
++
++    if (ns < 0) {
++        const char *e = getenv("EMU_IDLE_POLL_US");
++        ns = (e && *e ? strtoll(e, NULL, 0) : 10) * 1000;
++        if (ns <= 0) {
++            ns = 10000;
++        }
++    }
++    return ns;
++}
++
++static void emu_idle_wake(void *opaque)
++{
++    cpu_interrupt(opaque, CPU_INTERRUPT_EXITTB);
++}
++
++/* The idle loop's halt: a WFI that marks the core as idle for the icount charge. */
++void HELPER(emu_idle_wfi)(CPUARMState *env, uint32_t insn_len)
++{
++    CPUState *cs = env_cpu(env);
++    int i = cs->cpu_index;
++
++    emu_idle_wfi_mark(cs, true);
++    if (i < EMU_IDLE_MAX_CPUS) {
++        if (!emu_idle_timer[i]) {
++            emu_idle_timer[i] = timer_new_ns(QEMU_CLOCK_VIRTUAL, emu_idle_wake, cs);
++        }
++        timer_mod(emu_idle_timer[i],
++                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + emu_idle_poll_ns());
++    }
++    do_wfi(env, insn_len);
++}
++
++/* An ordinary WFI: the core is not charged for while it waits. */
+ void HELPER(wfi)(CPUARMState *env, uint32_t insn_len)
+ {
++    emu_idle_wfi_mark(env_cpu(env), false);
++    do_wfi(env, insn_len);
++}
++
++static void do_wfi(CPUARMState *env, uint32_t insn_len)
++{
+ #ifdef CONFIG_USER_ONLY
+     /*
+      * WFI in the user-mode emulator is technically permitted but not
+diff -ru a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
+--- a/target/arm/tcg/translate.c
++++ b/target/arm/tcg/translate.c
+@@ -7736,6 +7736,39 @@
+     }
+ }
+ 
++/*
++ * z6ii: EMU_IDLE_WFI. The camera's T-Kernel idle loop has no WFI: a core
++ * with nothing to run spins on a CPSR write and a branch back to it.
++ * With the knob, that one instruction (matched by address AND encoding, so
++ * other images loaded at the same addresses are untouched) is followed by a
++ * WFI that also marks the core idle, so the icount accounting charges the
++ * running cores for it (accel/tcg/icount-common.c). "1" = the master's loop;
++ * "PC:INSN" for another.
++ */
++static uint32_t emu_idle_wfi_pc, emu_idle_wfi_insn;
++
++static void emu_idle_wfi_init(void)
++{
++    static bool done;
++    const char *e;
++
++    if (done) {
++        return;
++    }
++    done = true;
++    e = getenv("EMU_IDLE_WFI");
++    if (!e || !*e || !strcmp(e, "0")) {
++        return;
++    }
++    if (!strcmp(e, "1")) {
++        emu_idle_wfi_pc = 0x10107090;
++        emu_idle_wfi_insn = 0xe321f013;
++    } else if (sscanf(e, "%" SCNx32 ":%" SCNx32, &emu_idle_wfi_pc,
++                      &emu_idle_wfi_insn) != 2) {
++        emu_idle_wfi_pc = 0;
++    }
++}
++
+ static void arm_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+ {
+     DisasContext *dc = container_of(dcbase, DisasContext, base);
+@@ -7773,6 +7806,12 @@
+     dc->insn = insn;
+     dc->base.pc_next = pc + 4;
+     disas_arm_insn(dc, insn);
++    emu_idle_wfi_init();
++    if (unlikely(emu_idle_wfi_pc) && pc == emu_idle_wfi_pc &&
++        insn == emu_idle_wfi_insn && dc->base.is_jmp == DISAS_EXIT) {
++        /* gen_lookup_tb() has stored the next PC: halt there, as a WFI would */
++        gen_helper_emu_idle_wfi(tcg_env, tcg_constant_i32(curr_insn_len(dc)));
++    }
+ 
+     arm_post_translate_insn(dc);
+ 

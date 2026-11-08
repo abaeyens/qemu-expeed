@@ -1,0 +1,136 @@
+Link the TB after an MSR to the CPSR that unmasks nothing pending and changes no mode
+
+diff -ru a/target/arm/helper.c b/target/arm/helper.c
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -10540,13 +10540,18 @@
+      * In a V8 implementation, it is permitted for privileged software to
+      * change the CPSR A/F bits regardless of the SCR.AW/FW bits.
+      */
+-    if (write_type != CPSRWriteRaw && !arm_feature(env, ARM_FEATURE_V8) &&
++    /*
++     * z6ii: everything below depends on a change of A or F, so test that
++     * before arm_is_secure(), which is costly at EL3 and would otherwise run
++     * on every IRQ mask toggle
++     */
++    changed_daif = (env->daif ^ val) & mask;
++    if (write_type != CPSRWriteRaw && (changed_daif & (CPSR_A | CPSR_F)) &&
++        !arm_feature(env, ARM_FEATURE_V8) &&
+         arm_feature(env, ARM_FEATURE_EL3) &&
+         !arm_feature(env, ARM_FEATURE_EL2) &&
+         !arm_is_secure(env)) {
+ 
+-        changed_daif = (env->daif ^ val) & mask;
+-
+         if (changed_daif & CPSR_A) {
+             /*
+              * Check to see if we are allowed to change the masking of async
+diff -ru a/target/arm/helper.h b/target/arm/helper.h
+--- a/target/arm/helper.h
++++ b/target/arm/helper.h
+@@ -61,6 +61,7 @@
+ DEF_HELPER_1(vesb, void, env)
+ 
+ DEF_HELPER_3(cpsr_write, void, env, i32, i32)
++DEF_HELPER_3(emu_cpsr_write, i32, env, i32, i32)
+ DEF_HELPER_2(cpsr_write_eret, void, env, i32)
+ DEF_HELPER_1(cpsr_read, i32, env)
+ 
+diff -ru a/target/arm/tcg/op_helper.c b/target/arm/tcg/op_helper.c
+--- a/target/arm/tcg/op_helper.c
++++ b/target/arm/tcg/op_helper.c
+@@ -599,6 +599,42 @@
+     }
+ }
+ 
++/*
++ * z6ii: an MSR to the CPSR that the translator may chain past (see
++ * gen_set_psr): returns non-zero when the caller must go back to the main
++ * loop -- the mode, E, IL or PAN changed, or an A/I/F mask went from masked
++ * to unmasked while an interrupt is pending (one raised while masked: the
++ * main loop saw it masked and left it pending; one raised later stops the
++ * next TB at its start by itself).
++ */
++uint32_t HELPER(emu_cpsr_write)(CPUARMState *env, uint32_t val, uint32_t mask)
++{
++    uint32_t old_cpsr = env->uncached_cpsr;
++    uint64_t old_daif = env->daif;
++    CPUState *cs = env_cpu(env);
++
++    if (!(mask & ~(CPSR_M | CPSR_AIF)) &&
++        !((val ^ old_cpsr) & mask & CPSR_M) &&
++        !((old_daif ^ val) & mask & (CPSR_A | CPSR_F))) {
++        /*
++         * Only the I mask can change, in the same mode (an `msr cpsr_c`
++         * toggling IRQs): all cpsr_write() would do is set it in env->daif
++         * -- no mode switch, no SCR.AW/FW or NMFI check (they need A or F
++         * to change), and no hflags rebuild (M, E, IL, PAN are unchanged).
++         */
++        env->daif = (old_daif & ~(CPSR_I & mask)) | (val & CPSR_I & mask);
++    } else {
++        HELPER(cpsr_write)(env, val, mask);
++    }
++    if ((old_cpsr ^ env->uncached_cpsr) & (CPSR_M | CPSR_E | CPSR_IL | CPSR_PAN)) {
++        return 1;
++    }
++    return (old_daif & ~env->daif & (CPSR_A | CPSR_I | CPSR_F)) != 0 &&
++           (qatomic_read(&cs->interrupt_request) &
++            (CPU_INTERRUPT_HARD | CPU_INTERRUPT_FIQ | CPU_INTERRUPT_VIRQ |
++             CPU_INTERRUPT_VFIQ | CPU_INTERRUPT_VSERR | CPU_INTERRUPT_EXITTB)) != 0;
++}
++
+ /* Write the CPSR for a 32-bit exception return */
+ void HELPER(cpsr_write_eret)(CPUARMState *env, uint32_t val)
+ {
+diff -ru a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
+--- a/target/arm/tcg/translate.c
++++ b/target/arm/tcg/translate.c
+@@ -2646,10 +2646,48 @@
+     return mask;
+ }
+ 
++/*
++ * z6ii: an MSR to the CPSR ends its TB with an exit to the main loop, so
++ * that an interrupt it unmasks is taken. When it changes no mode and unmasks
++ * nothing while an interrupt is pending (the camera's idle loop, twice per
++ * iteration), link to the next TB instead; an interrupt raised meanwhile still
++ * stops the next TB at its start. A32, unconditional, not single-stepping
++ * only. EMU_CPSR_CHAIN=0 turns it off.
++ */
++static bool emu_cpsr_chain_enabled(void)
++{
++    static int on = -1;
++
++    if (on < 0) {
++        const char *e = getenv("EMU_CPSR_CHAIN");
++        on = !(e && !strcmp(e, "0"));
++    }
++    return on;
++}
++
+ /* Returns nonzero if access to the PSR is not permitted. Marks t0 as dead. */
+ static int gen_set_psr(DisasContext *s, uint32_t mask, int spsr, TCGv_i32 t0)
+ {
+     TCGv_i32 tmp;
++    if (!spsr && !s->thumb && !s->condjmp && !s->ss_active &&
++        emu_cpsr_chain_enabled()) {
++        TCGv_i32 exit_needed = tcg_temp_new_i32();
++        /* a DisasLabel restores pc_save, which gen_goto_tb() advances */
++        DisasLabel to_main_loop = gen_disas_label(s);
++
++        gen_helper_emu_cpsr_write(exit_needed, tcg_env, t0, tcg_constant_i32(mask));
++        tcg_gen_brcondi_i32(TCG_COND_NE, exit_needed, 0, to_main_loop.label);
++        /*
++         * No exit needed means the TB flags are unchanged (no hflags
++         * rebuild; an MSR leaves Thumb and IT state alone), so the next
++         * TB can be linked directly.
++         */
++        gen_goto_tb(s, 0, curr_insn_len(s));
++        set_disas_label(s, to_main_loop);
++        gen_pc_plus_diff(s, cpu_R[15], curr_insn_len(s));
++        s->base.is_jmp = DISAS_EXIT;
++        return 0;
++    }
+     if (spsr) {
+         /* ??? This is also undefined in system mode.  */
+         if (IS_USER(s))

@@ -1,0 +1,52 @@
+Let a board choose what an EOI does when no interrupt is running
+
+diff -ru a/hw/intc/arm_gic.c b/hw/intc/arm_gic.c
+--- a/hw/intc/arm_gic.c
++++ b/hw/intc/arm_gic.c
+@@ -920,7 +920,18 @@
+         return;
+     }
+     if (s->running_priority[cpu] == 0x100) {
+-        return; /* No active IRQ.  */
++        /* No active IRQ, so no priority to drop. The written ID does not
++         * match the last GICC_IAR read, which is UNPREDICTABLE. Either
++         * ignore it, or (eoi-idle-deactivates) deactivate the named
++         * interrupt the way the non-idle path below does.
++         */
++        if (s->eoi_idle_deactivates && !gic_eoi_split(s, cpu, attrs) &&
++            !(gic_cpu_ns_access(s, cpu, attrs) &&
++              !(gic_has_groups(s) && gic_test_group(s, irq, cpu)))) {
++            gic_clear_active(s, irq, cpu);
++            gic_update(s);
++        }
++        return;
+     }
+ 
+     if (s->revision == REV_11MPCORE) {
+diff -ru a/hw/intc/arm_gic_common.c b/hw/intc/arm_gic_common.c
+--- a/hw/intc/arm_gic_common.c
++++ b/hw/intc/arm_gic_common.c
+@@ -370,6 +370,12 @@
+      */
+     DEFINE_PROP_UINT32("dist-iidr", GICState, dist_iidr, 0x43b),
+     DEFINE_PROP_UINT32("lspi", GICState, lspi, 0),
++    /* An EOI written while no interrupt is running (no active priority)
++     * is UNPREDICTABLE; by default it is ignored. When set, the named
++     * interrupt is still deactivated, as a board's real GIC may do.
++     */
++    DEFINE_PROP_BOOL("eoi-idle-deactivates", GICState,
++                     eoi_idle_deactivates, false),
+     DEFINE_PROP_END_OF_LIST(),
+ };
+ 
+diff -ru a/include/hw/intc/arm_gic_common.h b/include/hw/intc/arm_gic_common.h
+--- a/include/hw/intc/arm_gic_common.h
++++ b/include/hw/intc/arm_gic_common.h
+@@ -145,6 +145,7 @@
+     bool virt_extn;
+     uint32_t dist_iidr; /* value GICD_IIDR reads as */
+     uint32_t lspi;      /* GICD_TYPER.LSPI: number of lockable SPIs */
++    bool eoi_idle_deactivates; /* EOI with no active priority deactivates */
+     bool irq_reset_nonsecure; /* configure IRQs as group 1 (NS) on reset? */
+     int dev_fd; /* kvm device fd if backed by kvm vgic support */
+     Error *migration_blocker;

@@ -1,0 +1,83 @@
+Optionally make the camera's kernel spinlock yield its vCPU's turn (EMU_SPIN_YIELD)
+
+diff -ru a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
+--- a/target/arm/tcg/translate.c
++++ b/target/arm/tcg/translate.c
+@@ -7807,6 +7807,66 @@
+     }
+ }
+ 
++/*
++ * z6ii: EMU_SPIN_YIELD. Under single-threaded TCG (and so under -icount)
++ * the vCPUs take turns. When a core's turn ends while it holds a spinlock, the
++ * other core spins away its whole turn on a lock nobody can release, which on
++ * the camera's two concurrent cores would take the holder nanoseconds. In live
++ * view that spinning was a sizeable share of the master's instructions (the
++ * kernel lock's retry loop), and under -icount every one
++ * of them costs virtual time. With the knob, the loop's retry branch is
++ * translated as "if taken, go to the loop head and yield", the way QEMU
++ * translates the YIELD hint for single-threaded TCG (trans_YIELD): the core
++ * gives the rest of its turn to the next vCPU and executes nothing more, so its
++ * wait costs only the instructions it really ran. The decision depends on guest
++ * state alone, so -icount runs stay deterministic. "1" = the master's loop
++ * (its retry branch, matched by address AND encoding like EMU_IDLE_WFI);
++ * "PC:INSN" names another A32 conditional branch.
++ */
++static uint32_t emu_spin_yield_pc, emu_spin_yield_insn;
++
++static void emu_spin_yield_init(void)
++{
++    static bool done;
++    const char *e;
++
++    if (done) {
++        return;
++    }
++    done = true;
++    e = getenv("EMU_SPIN_YIELD");
++    if (!e || !*e || !strcmp(e, "0")) {
++        return;
++    }
++    if (!strcmp(e, "1")) {
++        emu_spin_yield_pc = 0x10120804;
++        emu_spin_yield_insn = 0x0afffffa;
++    } else if (sscanf(e, "%" SCNx32 ":%" SCNx32, &emu_spin_yield_pc,
++                      &emu_spin_yield_insn) != 2) {
++        emu_spin_yield_pc = 0;
++    }
++    /* only a conditional A32 B: the condition is the only thing the yield keeps */
++    if ((emu_spin_yield_insn & 0x0f000000) != 0x0a000000 ||
++        (emu_spin_yield_insn >> 28) >= 0xe) {
++        emu_spin_yield_pc = 0;
++    }
++}
++
++static bool emu_spin_yield_insn_at(DisasContext *dc, uint32_t pc, uint32_t insn)
++{
++    emu_spin_yield_init();
++    if (likely(!emu_spin_yield_pc) || pc != emu_spin_yield_pc ||
++        insn != emu_spin_yield_insn || (tb_cflags(dc->base.tb) & CF_PARALLEL)) {
++        return false;
++    }
++    /* condition failed: arm_tr_tb_stop() continues with the next instruction */
++    arm_skip_unless(dc, insn >> 28);
++    /* condition passed: the branch target, then the yield */
++    gen_update_pc(dc, jmp_diff(dc, sextract32(insn, 0, 24) << 2));
++    dc->base.is_jmp = DISAS_YIELD;
++    return true;
++}
++
+ static void arm_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+ {
+     DisasContext *dc = container_of(dcbase, DisasContext, base);
+@@ -7843,7 +7903,9 @@
+     insn = arm_ldl_code(env, &dc->base, pc, dc->sctlr_b);
+     dc->insn = insn;
+     dc->base.pc_next = pc + 4;
+-    disas_arm_insn(dc, insn);
++    if (!emu_spin_yield_insn_at(dc, pc, insn)) {
++        disas_arm_insn(dc, insn);
++    }
+     emu_idle_wfi_init();
+     if (unlikely(emu_idle_wfi_pc) && pc == emu_idle_wfi_pc &&
+         insn == emu_idle_wfi_insn && dc->base.is_jmp == DISAS_EXIT) {
