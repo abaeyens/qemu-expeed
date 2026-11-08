@@ -1,0 +1,6 @@
+[submodule "external/doomgeneric"]
+	path = external/doomgeneric
+	url = https://github.com/ozkl/doomgeneric
+[submodule "external/chocolate-doom"]
+	path = external/chocolate-doom
+	url = https://github.com/chocolate-doom/chocolate-doom.git

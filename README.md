@@ -27,6 +27,8 @@ To run the emulator, you'll need a Z 6II firmware update file version 1.70,
 which you should bring yourself.
 (For legal reasons, this repo does not include the Nikon firmware or parts thereof.)
 
+You also find a DOOM port,
+including the required cross-compilation set up.
 
 ## Functionality status
 Last updated 2026-11-08
@@ -122,6 +124,32 @@ Steps:
    - The emulator runs slower than real time,
      and as a result actions that are instant on the real camera
      tend to take several seconds on the emulated one.
+
+
+## Quick start: DOOM in the emulator
+The following steps assume that you're **inside the container**
+and have a runnable emulator (see steps 1 to 5 above).
+
+Steps:
+1. The DOOM game consists of two parts: the game engine,
+   already included in this repository as a submodule,
+   and `DOOM1.WAD`, which contains the story and art.
+   [Download the shareware DOOM 1.9 WAD from here](https://doomwiki.org/wiki/DOOM1.WAD)
+   and save it in the root of the `qemu-expeed` directory.
+2. Cross-compile DOOM with
+   ```sh
+   ./programs/doom/build.sh
+   ```
+   This builds `out/doom_port/doom.bin`.
+3. And finally launch the emulator with DOOM:
+   ```sh
+   EXPEED_AUDIO_WAV=out/doom.wav ./scripts/emu/doom.sh
+   ```
+   This first boots the machine fully, then enters the camera's menu,
+   and subsequently loads the DOOM executable into the emulator's RAM
+   and starts it as its own T-Kernel task,
+   which then loads `DOOM1.WAD` from the emulated XQD card.
+   The virtual speaker output gets saved in `out/doom.wav`.
 
 
 ## Documentation
