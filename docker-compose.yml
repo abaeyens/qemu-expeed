@@ -1,0 +1,25 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - USER=$USER
+        - USER_ID=$USER_ID
+        - GROUP_ID=$GROUP_ID
+    command: bash
+    working_dir: ${PWD}
+    volumes:
+      - ./:${PWD}
+      - ${XAUTHORITY:-/home/${USER}/.Xauthority}:/home/${USER}/.Xauthority:ro
+    environment:
+      # Graphics
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      # Other
+      - HISTFILE=${PWD}/.bash_history
+    network_mode: host
+    privileged: false
+    restart: no
+    ulimits:
+      core: 0

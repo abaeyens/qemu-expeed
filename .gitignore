@@ -1,0 +1,13 @@
+.bash_history
+.env
+
+# Non-redistributable files
+DOOM1.WAD
+Z6_2_0170.bin
+
+# Various output
+out/
+
+# Python cache
+__pycache__/
+*.pyc
