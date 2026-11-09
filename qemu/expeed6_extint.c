@@ -4,7 +4,7 @@
  * detects GPIO edges
  *
  * References:
- * - GoPro GP2 Linux 4.19.124 for the GP2: drivers/irqchip/irq-sni-exiu.c
+ * - GoPro GP2 Linux 4.19.124: drivers/irqchip/irq-sni-exiu.c
  *
  * Copyright (c) 2026 Arne Baeyens
  *

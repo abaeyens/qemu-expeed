@@ -5,9 +5,9 @@
  * the sensor on 8, the codec on 6.
  *
  * References:
- * - Ricoh GR III, Linux 1.21.1: drivers/spi/spi-sni.c
- * - Ricoh GR IV, Linux 5.15.182: drivers/spi/spi-sni.c
- * - Nikon Z 8, Linux 4.14.224: drivers/spi/spi-nikon.c
+ * - Ricoh GR III Linux 1.21.2: drivers/spi/spi-sni.c
+ * - Ricoh GR IV Linux 5.15.182: drivers/spi/spi-sni.c
+ * - Nikon Z 8 Linux 4.14.224: drivers/spi/spi-nikon.c
  *
  * Copyright (c) 2026 Arne Baeyens
  *
