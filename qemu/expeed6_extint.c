@@ -159,7 +159,7 @@ static void extint_register_types(void)
 
 type_init(extint_register_types)
 
-    Expeed6ExtIntState *expeed6_install_extint(MemoryRegion *root, DeviceState *gic)
+Expeed6ExtIntState *expeed6_install_extint(MemoryRegion *root, DeviceState *gic)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_EXTINT);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);

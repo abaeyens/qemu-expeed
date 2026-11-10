@@ -125,7 +125,7 @@ static void dafi_register_types(void)
 
 type_init(dafi_register_types)
 
-    void expeed6_install_dafi(MemoryRegion *root, DeviceState *gic)
+void expeed6_install_dafi(MemoryRegion *root, DeviceState *gic)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_DAFI);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);

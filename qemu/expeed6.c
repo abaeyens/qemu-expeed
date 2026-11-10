@@ -368,7 +368,7 @@ static void regfile_register_types(void)
 
 type_init(regfile_register_types)
 
-    Expeed6Regfile *install_regfile(MemoryRegion *root, uint32_t base, uint32_t size, const char *tag)
+Expeed6Regfile *install_regfile(MemoryRegion *root, uint32_t base, uint32_t size, const char *tag)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_REGFILE);
     qdev_prop_set_uint32(dev, "base", base);

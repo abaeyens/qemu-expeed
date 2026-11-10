@@ -273,7 +273,7 @@ static void dispeng_vsync_register_types(void)
 
 type_init(dispeng_vsync_register_types)
 
-    void expeed6_install_disp(MemoryRegion *root, AddressSpace *as, DeviceState *gic)
+void expeed6_install_disp(MemoryRegion *root, AddressSpace *as, DeviceState *gic)
 {
     Expeed6Regfile *disp = install_regfile(root, 0x20140000, 0x10000, "expeed6.dsi");
     DeviceState *dev = qdev_new(TYPE_EXPEED6_DISPENG_VSYNC);

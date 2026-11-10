@@ -170,7 +170,7 @@ static void rawb_register_types(void)
 
 type_init(rawb_register_types)
 
-    void expeed6_install_rawb(MemoryRegion *root, AddressSpace *as, DeviceState *gic)
+void expeed6_install_rawb(MemoryRegion *root, AddressSpace *as, DeviceState *gic)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_RAW);
     EXPEED6_RAW(dev)->as = as;

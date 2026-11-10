@@ -238,7 +238,7 @@ static void hdmac_register_types(void)
 
 type_init(hdmac_register_types)
 
-    void expeed6_install_hdmac(MemoryRegion *root, AddressSpace *as, DeviceState *gic)
+void expeed6_install_hdmac(MemoryRegion *root, AddressSpace *as, DeviceState *gic)
 {
     static const hwaddr base[2] = { HDMAC_BASE0, HDMAC_BASE1 };
     static const int spi[2] = { HDMAC_SPI0, HDMAC_SPI1 };

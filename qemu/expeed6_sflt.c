@@ -169,7 +169,7 @@ static void sflt_register_types(void)
 
 type_init(sflt_register_types)
 
-    void expeed6_install_sflt(MemoryRegion *root, DeviceState *gic, AddressSpace *as)
+void expeed6_install_sflt(MemoryRegion *root, DeviceState *gic, AddressSpace *as)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_SFLT);
     Expeed6SfltState *s = EXPEED6_SFLT(dev);

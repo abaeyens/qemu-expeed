@@ -96,7 +96,7 @@ static void uart0_register_types(void)
 
 type_init(uart0_register_types)
 
-    void expeed6_install_uart0(MemoryRegion *root, bool master)
+void expeed6_install_uart0(MemoryRegion *root, bool master)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_UART0);
     if (master && getenv("EXPEED_UART")) {

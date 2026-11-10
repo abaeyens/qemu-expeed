@@ -210,7 +210,7 @@ static void gevg_register_types(void)
 
 type_init(gevg_register_types)
 
-    void expeed6_install_gevg(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master)
+void expeed6_install_gevg(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_GEVG);
     Expeed6GevgState *gevg = EXPEED6_GEVG(dev);

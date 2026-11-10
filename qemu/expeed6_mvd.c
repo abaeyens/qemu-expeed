@@ -138,7 +138,7 @@ static void mvd_register_types(void)
 
 type_init(mvd_register_types)
 
-    void expeed6_install_mvd(MemoryRegion *root, DeviceState *gic)
+void expeed6_install_mvd(MemoryRegion *root, DeviceState *gic)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_MVD);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);

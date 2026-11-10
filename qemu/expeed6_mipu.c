@@ -592,7 +592,7 @@ static void mipu_register_types(void)
 
 type_init(mipu_register_types)
 
-    Expeed6MipuState *expeed6_install_mipu(MemoryRegion *root, AddressSpace *as, bool master)
+Expeed6MipuState *expeed6_install_mipu(MemoryRegion *root, AddressSpace *as, bool master)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_MIPU);
     Expeed6MipuState *mipu = EXPEED6_MIPU(dev);

@@ -371,7 +371,7 @@ static void audio_register_types(void)
 
 type_init(audio_register_types)
 
-    void expeed6_install_audio(MemoryRegion *root)
+void expeed6_install_audio(MemoryRegion *root)
 {
     const char *wav = getenv("EXPEED_AUDIO_WAV");
     DeviceState *dev = qdev_new(TYPE_EXPEED6_AUDIO);

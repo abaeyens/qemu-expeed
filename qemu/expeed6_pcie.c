@@ -259,7 +259,7 @@ static void expeed6_pcie_host_register(void)
 }
 type_init(expeed6_pcie_host_register)
 
-    static void npcie_settle(Expeed6PcieHost *h)
+static void npcie_settle(Expeed6PcieHost *h)
 {
     if (!h->blk) {
         return;

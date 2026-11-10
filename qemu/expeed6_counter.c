@@ -74,7 +74,7 @@ static void counter_register_types(void)
 
 type_init(counter_register_types)
 
-    void expeed6_install_counter(MemoryRegion *root)
+void expeed6_install_counter(MemoryRegion *root)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_COUNTER);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);

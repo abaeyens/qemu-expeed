@@ -125,7 +125,7 @@ static void sysctl_register_types(void)
 
 type_init(sysctl_register_types)
 
-    void expeed6_install_sysctl(MemoryRegion *root)
+void expeed6_install_sysctl(MemoryRegion *root)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_SYSCTL);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);

@@ -238,7 +238,7 @@ static void jpegco_register_types(void)
 
 type_init(jpegco_register_types)
 
-    void expeed6_install_jpegco(MemoryRegion *root, AddressSpace *as, DeviceState *gic)
+void expeed6_install_jpegco(MemoryRegion *root, AddressSpace *as, DeviceState *gic)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_JPEG);
     EXPEED6_JPEG(dev)->as = as;

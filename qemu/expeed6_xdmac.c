@@ -228,7 +228,7 @@ static void xdmac_register_types(void)
 
 type_init(xdmac_register_types)
 
-    void expeed6_install_xdmac(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master)
+void expeed6_install_xdmac(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_XDMAC);
     EXPEED6_XDMAC(dev)->as = as;

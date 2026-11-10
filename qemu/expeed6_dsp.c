@@ -206,7 +206,7 @@ static void dsp_peer_register_types(void)
 
 type_init(dsp_peer_register_types)
 
-    void expeed6_install_dsp_peers(MemoryRegion *root, DeviceState *gic)
+void expeed6_install_dsp_peers(MemoryRegion *root, DeviceState *gic)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_DSP_PEER);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);

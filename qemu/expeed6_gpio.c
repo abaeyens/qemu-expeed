@@ -235,7 +235,7 @@ static void gpio_register_types(void)
 
 type_init(gpio_register_types)
 
-    Expeed6GpioState *expeed6_install_gpio(MemoryRegion *root, bool master, Expeed6ExtIntState *extint)
+Expeed6GpioState *expeed6_install_gpio(MemoryRegion *root, bool master, Expeed6ExtIntState *extint)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_GPIO);
     Expeed6GpioState *gpio = EXPEED6_GPIO(dev);

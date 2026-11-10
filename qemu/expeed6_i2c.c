@@ -378,7 +378,7 @@ static void expeed6_i2c_register_types(void)
 
 type_init(expeed6_i2c_register_types)
 
-    void expeed6_install_i2c(MemoryRegion *root, DeviceState *gic)
+void expeed6_install_i2c(MemoryRegion *root, DeviceState *gic)
 {
     const unsigned acc_ch = 2, acc_addr = 0x1d;
 

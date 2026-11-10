@@ -775,8 +775,8 @@ static void sif_register_types(void)
 
 type_init(sif_register_types)
 
-    void expeed6_install_sif(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master,
-                             Expeed6DmaState *dma, Expeed6MipuState *mipu)
+void expeed6_install_sif(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master, Expeed6DmaState *dma,
+                         Expeed6MipuState *mipu)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_SIF);
     Expeed6SifState *sif = EXPEED6_SIF(dev);

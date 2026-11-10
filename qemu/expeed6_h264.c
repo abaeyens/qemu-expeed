@@ -499,7 +499,7 @@ static void h264_register_types(void)
 
 type_init(h264_register_types)
 
-    void expeed6_install_h264(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master)
+void expeed6_install_h264(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_H264);
     Expeed6H264State *h264 = EXPEED6_H264(dev);

@@ -150,7 +150,7 @@ static void cd_register_types(void)
 
 type_init(cd_register_types)
 
-    void expeed6_install_cd(MemoryRegion *root, DeviceState *gic, bool master)
+void expeed6_install_cd(MemoryRegion *root, DeviceState *gic, bool master)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_CD);
     uint32_t present = 0;

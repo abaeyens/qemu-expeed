@@ -174,7 +174,7 @@ static void idmac_register_types(void)
 
 type_init(idmac_register_types)
 
-    Expeed6DmaState *expeed6_install_idmac(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master)
+Expeed6DmaState *expeed6_install_idmac(MemoryRegion *root, AddressSpace *as, DeviceState *gic, bool master)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_IDMAC);
     Expeed6DmaState *dma = EXPEED6_IDMAC(dev);

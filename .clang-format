@@ -23,3 +23,5 @@ AlignTrailingComments:
   Kind: Leave
 MaxEmptyLinesToKeep: 2
 AlignConsecutiveMacros: Consecutive
+# avoid next line indented after type_init(...)
+StatementMacros: [type_init]

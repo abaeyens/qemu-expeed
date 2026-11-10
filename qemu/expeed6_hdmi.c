@@ -73,7 +73,7 @@ static void hdmi_register_types(void)
 
 type_init(hdmi_register_types)
 
-    void expeed6_install_hdmi(MemoryRegion *root)
+void expeed6_install_hdmi(MemoryRegion *root)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_HDMI);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);

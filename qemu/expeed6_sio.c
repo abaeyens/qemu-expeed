@@ -499,7 +499,7 @@ static void sio_register_types(void)
 
 type_init(sio_register_types)
 
-    void expeed6_install_sio(MemoryRegion *root, AddressSpace *as, DeviceState *gic, Expeed6ExtIntState *extint)
+void expeed6_install_sio(MemoryRegion *root, AddressSpace *as, DeviceState *gic, Expeed6ExtIntState *extint)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_SIO);
     Z6iiExmcuState *exs = EXPEED6_SIO(dev);

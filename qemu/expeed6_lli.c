@@ -336,7 +336,7 @@ static void lli_register_types(void)
 
 type_init(lli_register_types)
 
-    Expeed6LliState *expeed6_install_lli(MemoryRegion *root, DeviceState *gic, bool master)
+Expeed6LliState *expeed6_install_lli(MemoryRegion *root, DeviceState *gic, bool master)
 {
     DeviceState *dev = qdev_new(TYPE_EXPEED6_LLI);
     Expeed6LliState *lli = EXPEED6_LLI(dev);
