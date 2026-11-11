@@ -41,8 +41,7 @@
 #define NUM_IRQ       256
 #define CNTFRQ_HZ     48000000ULL
 
-#define FW_ENTRY 0x10020000
-#define NUM_CPU  2
+#define NUM_CPU 2
 
 typedef struct Expeed6State {
     ARMCPU *cpu[NUM_CPU];

@@ -92,6 +92,19 @@ static void load_flash(AddressSpace *as, const char *path)
     }
 }
 
+/*
+ * map memory a second time at 0x0
+ * used to provide the bootloader at the ARM core's native reset address
+ * TODO: figure out the Z 6II's exact boot sequence,
+ *       confirm whether it indeed has this remapping.
+ */
+static void z6ii_map_reset_alias(MemoryRegion *root, MemoryRegion *image, const char *name)
+{
+    MemoryRegion *alias = g_new(MemoryRegion, 1);
+    memory_region_init_alias(alias, NULL, name, image, 0, IMAGE_SIZE);
+    memory_region_add_subregion(root, 0x0, alias);
+}
+
 static const char *z6ii_slave_flash(void)
 {
     const char *flash = getenv("Z6II_SLAVE");
@@ -129,15 +142,13 @@ static void z6ii_build_slave(MachineState *machine, bool el3)
     }
 
     MemoryRegion *mr;
-    mr = g_new(MemoryRegion, 1);
-    memory_region_init_ram(mr, NULL, "expeed6.sla.image", IMAGE_SIZE, &error_fatal);
-    memory_region_add_subregion(root, IMAGE_BASE, mr);
+    MemoryRegion *image = g_new(MemoryRegion, 1);
+    memory_region_init_ram(image, NULL, "expeed6.sla.image", IMAGE_SIZE, &error_fatal);
+    memory_region_add_subregion(root, IMAGE_BASE, image);
+    z6ii_map_reset_alias(root, image, "expeed6.sla.image@0");
     mr = g_new(MemoryRegion, 1);
     memory_region_init_ram(mr, NULL, "expeed6.sla.ram", RAM_SIZE, &error_fatal);
     memory_region_add_subregion(root, RAM_BASE, mr);
-    mr = g_new(MemoryRegion, 1);
-    memory_region_init_ram(mr, NULL, "expeed6.sla.low", 0x04000000, &error_fatal);
-    memory_region_add_subregion(root, 0x0, mr);
     mr = g_new(MemoryRegion, 1);
     memory_region_init_ram(mr, NULL, "expeed6.sla.sram04", 0x00040000, &error_fatal);
     memory_region_add_subregion(root, 0x04000000, mr);
@@ -209,9 +220,7 @@ static void z6ii_init(MachineState *machine)
     memory_region_add_subregion(sysmem, IMAGE_BASE, image);
     memory_region_init_ram(ram, NULL, "expeed6.ram", RAM_SIZE, &error_fatal);
     memory_region_add_subregion(sysmem, RAM_BASE, ram);
-    MemoryRegion *low = g_new(MemoryRegion, 1);
-    memory_region_init_ram(low, NULL, "expeed6.low", 0x04000000, &error_fatal);
-    memory_region_add_subregion(sysmem, 0x0, low);
+    z6ii_map_reset_alias(sysmem, image, "expeed6.image@0");
 
     load_flash(as, flash);
 

@@ -8,8 +8,10 @@
 The image is the content of the camera's 64 MB NOR flash at 0x10000000: the firmware image at 0x10020000 and, above
 it, the synthetic parameter banks (synth_param_banks.py) the boot restores its reserved regions from, with,
 optionally, the user settings region written from a settings-store dump with KEY=VALUE settings stored over it
-(settings_region.py; default_settings.py makes the dump). The first-stage bootloader's 128 KB at the start stays
-empty, as do the gaps (zeros). The file is sparse.
+(settings_region.py; default_settings.py makes the dump).
+
+If desired, one can provide a dumped bootloader, otherwise the stand-in bootloader
+which just jumps directly to the image base gets used.
 
   python3 scripts/make_flash_image.py --image out/eg1850_mas_01700 -o out/flash.img \\
       --settings-dump out/default_settings_store.bin --setting 0x1701=3
@@ -17,6 +19,7 @@ empty, as do the gaps (zeros). The file is sparse.
 """
 import argparse
 import os
+import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,11 +30,22 @@ from param_flash import Layout  # noqa: E402
 
 FLASH_BASE, FLASH_SIZE = 0x10000000, 0x04000000
 IMAGE_ADDR = 0x10020000  # the firmware image's load base
+# Bootloader stand-in: ldr pc, [pc, #-4] to IMAGE_ADDR (sits by definition at FLASH_BASE)
+BOOT_STUB = struct.pack("<II", 0xE51FF004, IMAGE_ADDR)
 
 
-def assemble(out_path, image, banks):
-    """Write `image` at IMAGE_ADDR and each of `banks` {address: bytes} at its address, as a sparse file."""
-    parts = {IMAGE_ADDR: image, **banks}
+def assemble(out_path, image, banks, boot=BOOT_STUB):
+    """Assemble a flash image from several parts and write to a sparse file
+
+    Write `boot` at the flash start (0x0), `image` at `IMAGE_ADDR - FLASH_BASE`,
+    and each of `banks` {address: bytes} at its address minus FLASH_BASE.
+    """
+    max_bootloader_size = IMAGE_ADDR - FLASH_BASE
+    if len(boot) > max_bootloader_size:
+        sys.exit(
+            f"bootloader is {len(boot):#x} bytes while must be <={max_bootloader_size:#x} bytes"
+        )
+    parts = {FLASH_BASE: boot, IMAGE_ADDR: image, **banks}
     with open(out_path, "wb") as f:
         f.truncate(FLASH_SIZE)
         for addr in sorted(parts):
@@ -40,6 +54,12 @@ def assemble(out_path, image, banks):
                 sys.exit(f"{addr:#x}+{len(data):#x} is outside the flash")
             f.seek(addr - FLASH_BASE)
             f.write(data)
+
+
+def read_boot(path):
+    """Read bootloader in from a dump of it"""
+    with open(path, "rb") as f:
+        return f.read()
 
 
 def main():
@@ -67,6 +87,11 @@ def main():
         help="with --settings-dump: store VALUE in InfoData key KEY first (repeatable; KEY=hex:BYTES "
         "for a cell wider than a word)",
     )
+    ap.add_argument(
+        "--bootloader",
+        metavar="DUMP",
+        help="bootloader dump file (default: jump to the image)",
+    )
     a = ap.parse_args()
     if a.setting and not a.settings_dump:
         sys.exit("--setting needs --settings-dump")
@@ -91,7 +116,8 @@ def main():
         except ValueError as e:
             sys.exit(f"{a.image}: {e}")
         banks = flash.images()
-    assemble(a.out, image, banks)
+    boot = read_boot(a.bootloader) if a.bootloader else BOOT_STUB
+    assemble(a.out, image, banks, boot)
     print(f"{a.out}: the image and {len(banks)} banks" + "".join(f", {t}" for t in a.setting))
 
 

@@ -24,7 +24,6 @@ void z6ii_cpu_reset(void *opaque)
 
     for (int c = 0; c < NUM_CPU; c++) {
         cpu_reset(CPU(s->cpu[c]));
-        s->cpu[c]->env.regs[15] = FW_ENTRY;
     }
 }
 
